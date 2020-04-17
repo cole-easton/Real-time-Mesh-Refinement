@@ -26,14 +26,14 @@ public class MeshTree
 	private LinkedList<Node> leafNodes;
 	private LinkedList<Node> superleafNodes; //one level up from leaves
 	private Dictionary<Int64, int> middlePointIndexCache;
-	private Dictionary<int, Node> nodeByMidpointCache;
+	private Dictionary<int, LinkedList<Node>> nodeByMidpointCache;
 
 	public MeshTree(IList<Vector3> vertices, IList<int> triangles)
 	{
 		leafNodes = new LinkedList<Node>();
 		superleafNodes = new LinkedList<Node>();
 		middlePointIndexCache = new Dictionary<long, int>();
-		nodeByMidpointCache = new Dictionary<int, Node>();
+		nodeByMidpointCache = new Dictionary<int, LinkedList<Node>>();
 		this.vertices = new List<Vector3>(vertices);
 		for (int i = 0; i < triangles.Count; i+=3)
 		{
@@ -61,10 +61,32 @@ public class MeshTree
 	private bool reduceNode(Node n)
 	{
 		if (n.Children == null)
+		{
 			return false;
+		}
+		int i0 = n.Triangle.Vertex0;
+		int i1 = n.Triangle.Vertex1;
+		int i2 = n.Triangle.Vertex2;
+		int mid0, mid1, mid2;
+		if (!middlePointIndexCache.TryGetValue(getHash(n.Triangle.Vertex0, n.Triangle.Vertex1), out mid0)) { mid0 = -1; }
+		if (!middlePointIndexCache.TryGetValue(getHash(n.Triangle.Vertex1, n.Triangle.Vertex2), out mid1)) { mid1 = -1; }
+		if (!middlePointIndexCache.TryGetValue(getHash(n.Triangle.Vertex0, n.Triangle.Vertex2), out mid2)) { mid2 = -1; }
+		if (nodeByMidpointCache.ContainsKey(mid0)) //if we're reducing a split node it'll only have one midpoint in the dict
+			nodeByMidpointCache[mid0].Remove(n);
+		if (nodeByMidpointCache.ContainsKey(mid1))
+			nodeByMidpointCache[mid1].Remove(n);
+		if (nodeByMidpointCache.ContainsKey(mid2))
+			nodeByMidpointCache[mid2].Remove(n);
 		foreach (Node child in n.Children)
 		{
-			leafNodes.Remove(child.LinkedListNode);
+			try
+			{
+				leafNodes.Remove(child.LinkedListNode);
+			}
+			catch
+			{
+				Debug.Log("Children.count: " + n.Children.Length);
+			}
 		}
 		n.Children = null;
 		if (n.Dependents != null)
@@ -77,7 +99,7 @@ public class MeshTree
 		n.Dependents = null;
 		superleafNodes.Remove(n.LinkedListNode);
 		leafNodes.AddFirst(n.LinkedListNode);
-		if (n.Parent.IsSuperleaf())
+		if (n.Parent != null && n.Parent.IsSuperleaf() &&!superleafNodes.Contains(n.Parent))
 		{
 			superleafNodes.AddFirst(n.Parent.LinkedListNode);
 		}
@@ -100,9 +122,21 @@ public class MeshTree
 		int mid0 = getMiddlePoint(i0, i1);
 		int mid1 = getMiddlePoint(i1, i2);
 		int mid2 = getMiddlePoint(i2, i0);
-		nodeByMidpointCache[mid0] = n;
-		nodeByMidpointCache[mid1] = n;
-		nodeByMidpointCache[mid2] = n;
+		if (!nodeByMidpointCache.ContainsKey(mid0))
+		{
+			nodeByMidpointCache[mid0] = new LinkedList<Node>();
+		}
+		if (!nodeByMidpointCache.ContainsKey(mid1))
+		{
+			nodeByMidpointCache[mid1] = new LinkedList<Node>();
+		}
+		if (!nodeByMidpointCache.ContainsKey(mid2))
+		{
+			nodeByMidpointCache[mid2] = new LinkedList<Node>();
+		}
+		nodeByMidpointCache[mid0].AddFirst(n);
+		nodeByMidpointCache[mid1].AddFirst(n);
+		nodeByMidpointCache[mid2].AddFirst(n);
 		if (n.Parent != null && n.Parent.IsSuperleaf())
 			superleafNodes.Remove(n.Parent.LinkedListNode);
 		children[0] = new Node(new Triangle(i0, mid0, mid2));
@@ -124,13 +158,22 @@ public class MeshTree
 		do
 		{
 			keepProcessing = false;
-			Queue<KeyValuePair<bool, Node>> processQueue = new Queue<KeyValuePair<bool, Node>>();
+			Queue<Node> splitQueue = new Queue<Node>(); //Queue of faces to split in half
+			Queue<Node> refineQueue = new Queue<Node>();
 			foreach (Node node in leafNodes)
 			{
 				int[] mids = new int[3];
-				if (!middlePointIndexCache.TryGetValue(getHash(node.Triangle.Vertex0, node.Triangle.Vertex0), out mids[0])) { mids[0] = -1; }
+				if (!middlePointIndexCache.TryGetValue(getHash(node.Triangle.Vertex0, node.Triangle.Vertex1), out mids[0])) { mids[0] = -1; }
 				if (!middlePointIndexCache.TryGetValue(getHash(node.Triangle.Vertex1, node.Triangle.Vertex2), out mids[1])) { mids[1] = -1; }
 				if (!middlePointIndexCache.TryGetValue(getHash(node.Triangle.Vertex0, node.Triangle.Vertex2), out mids[2])) { mids[2] = -1; }
+				for (int i = 0; i < mids.Length; i++)
+				{
+					if (mids[i] != -1 && nodeByMidpointCache.ContainsKey(mids[i]) && (nodeByMidpointCache[mids[i]] == null || nodeByMidpointCache[mids[i]].Count == 0))
+					{
+						middlePointIndexCache.Remove(getHash(node.Triangle.GetVertexByIndex(i), node.Triangle.GetVertexByIndex((i + 1) % 3)));
+						mids[i] = -1;
+					}
+				}
 				int numMidpoints = (mids[0] != -1 ? 1 : 0) + (mids[1] != -1 ? 1 : 0) + (mids[2] != -1 ? 1 : 0);
 				switch (numMidpoints)
 				{
@@ -138,57 +181,59 @@ public class MeshTree
 						break; //we're not bordering any more-highly-refined areas; do nothing
 					case 1:
 						keepProcessing = true;
-						processQueue.Enqueue(new KeyValuePair<bool, Node>(false, node));
-						
+						splitQueue.Enqueue(node);
 						break;
 					default:
-						processQueue.Enqueue(new KeyValuePair<bool, Node>(true, node));
+						keepProcessing = true;
+						refineQueue.Enqueue(node);
 						break;
 				}
 			}
-			while (processQueue.Count > 0)
+			// at this point we've removed all midpoints indices from the cache that are not used by any leaf nodes
+			while (splitQueue.Count > 0)
 			{
-				KeyValuePair<bool, Node> pair = processQueue.Dequeue();
-				Node node = pair.Value;
-				if (pair.Key) //they key represents whether there were multiple adjacencies 
+				Node node = splitQueue.Dequeue();
+				int[] mids = new int[3];
+				if (!middlePointIndexCache.TryGetValue(getHash(node.Triangle.Vertex0, node.Triangle.Vertex1), out mids[0])) { mids[0] = -1; }
+				if (!middlePointIndexCache.TryGetValue(getHash(node.Triangle.Vertex1, node.Triangle.Vertex2), out mids[1])) { mids[1] = -1; }
+				if (!middlePointIndexCache.TryGetValue(getHash(node.Triangle.Vertex0, node.Triangle.Vertex2), out mids[2])) { mids[2] = -1; }
+				Debug.Assert((mids[0] != -1 ? 1 : 0) + (mids[1] != -1 ? 1 : 0) + (mids[2] != -1 ? 1 : 0) == 1);
+				for (int j = 0; j < 3; j++)
 				{
-					refineNode(node);
-				}
-				else
-				{
-					int[] mids = new int[3];
-					if (!middlePointIndexCache.TryGetValue(getHash(node.Triangle.Vertex0, node.Triangle.Vertex0), out mids[0])) { mids[0] = -1; }
-					if (!middlePointIndexCache.TryGetValue(getHash(node.Triangle.Vertex1, node.Triangle.Vertex2), out mids[1])) { mids[1] = -1; }
-					if (!middlePointIndexCache.TryGetValue(getHash(node.Triangle.Vertex0, node.Triangle.Vertex2), out mids[2])) { mids[2] = -1; }
-					for (int j = 0; j < 3; j++)
+					if (mids[j] != -1)
 					{
-						if (mids[j] != -1)
-						{
-							Node[] children = new Node[2];
-							children[0] = new Node(new Triangle(mids[j], node.Triangle.GetVertexByIndex((j + 2) % 3), node.Triangle.GetVertexByIndex(j)));
-							children[1] = new Node(new Triangle(mids[j], node.Triangle.GetVertexByIndex((j + 1) % 3), node.Triangle.GetVertexByIndex((j + 2) % 3)));
-							if (node.Parent.IsSuperleaf())
-								superleafNodes.Remove(node.Parent.LinkedListNode);
-							node.Children = children;
-							leafNodes.AddFirst(children[0].LinkedListNode);
-							leafNodes.AddFirst(children[1].LinkedListNode);
-							leafNodes.Remove(node.LinkedListNode);
-							superleafNodes.AddFirst(node.LinkedListNode);
-							Node inverseDependent = nodeByMidpointCache[mids[j]];
-							if (inverseDependent.Dependents == null)
-								inverseDependent.Dependents = new List<Node>(3);
-							inverseDependent.Dependents.Add(node);
-							break;
-						}
+						Node[] children = new Node[2];
+						children[0] = new Node(new Triangle(mids[j], node.Triangle.GetVertexByIndex((j + 2) % 3), node.Triangle.GetVertexByIndex(j)));
+						children[1] = new Node(new Triangle(mids[j], node.Triangle.GetVertexByIndex((j + 1) % 3), node.Triangle.GetVertexByIndex((j + 2) % 3)));
+						if (node.Parent != null && node.Parent.IsSuperleaf())
+							superleafNodes.Remove(node.Parent.LinkedListNode);
+						node.Children = children;
+						leafNodes.AddFirst(children[0].LinkedListNode);
+						leafNodes.AddFirst(children[1].LinkedListNode);
+						leafNodes.Remove(node.LinkedListNode);
+						superleafNodes.AddFirst(node.LinkedListNode);
+						Node inverseDependent = nodeByMidpointCache[mids[j]].First.Value;
+						if (inverseDependent.Dependents == null)
+							inverseDependent.Dependents = new List<Node>(3);
+						inverseDependent.Dependents.Add(node);
+
+						/* while we may not need this (as it's unlikely there'd be a flat node next to a split one, since splitting only happens if the adjacent
+						 * node is refined) there may be some cases I'm not considering, and this node does have the given midpoint, so it's sensible to add it */
+						nodeByMidpointCache[mids[j]].AddFirst(node); 
+						break;
 					}
 				}
+			}
+			while (refineQueue.Count > 0)
+			{
+				refineNode(refineQueue.Dequeue());
+
 			}
 		} while (keepProcessing);
 	}
 
 	public void Refine(Func<Triangle, int> getRefinementDegree)
 	{
-		Debug.Log("refine in");
 		bool keepProcessing;
 		do
 		{
@@ -304,10 +349,10 @@ class Node
 	}
 	public bool IsSuperleaf()
 	{
-		if (children == null) return false;
+		if (children == null) return false; //regular leaf
 		foreach(Node child in children)
 		{
-			if (child.children != null) return false;
+			if (child.children != null) return false; //has superleaf child -> not superleaf
 		}
 		return true;
 	}
