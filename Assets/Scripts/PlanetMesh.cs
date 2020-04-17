@@ -8,30 +8,35 @@ public class PlanetMesh : MonoBehaviour
 {
 
 	private Mesh mesh;
+	private MeshTree meshTree;
 	private List<int> triangles = new List<int>();
 	private List<Vector3> vertices = new List<Vector3>();
 	private Dictionary<Int64, int> middlePointIndexCache;
 	// Start is called before the first frame update
 	void Start()
     {
-		//maybe changing something will make Sourcetree work p gg
 		mesh = new Mesh();
 		gameObject.GetComponent<MeshFilter>().mesh = mesh;
 		middlePointIndexCache = new Dictionary<long, int>();
-		BuildIcosphere();
-		for (int i = 0; i < 2; i++)
-		{
-			Refine(Vector3.up, 180);
-		}
-		for (int i = 0; i < 2; i++)
-		{
-			Refine(Vector3.up, 90);
-		}
-		for (int i = 0; i < 2; i++)
-		{
-			Refine(Vector3.up, 30);
-		}
-		AddPerlin(.5f, 5);
+		meshTree = BuildIcosphere();
+		meshTree.Refine(t => 3);
+		//meshTree.Refine(t => 10 - (int)(Vector3.Angle(t.GetCenter(meshTree.Vertices), Vector3.up)/20 + 0.5));
+		mesh.vertices = meshTree.Vertices;
+		mesh.triangles = meshTree.LeafTriangles;
+
+		//for (int i = 0; i < 2; i++)
+		//{
+		//	Refine(Vector3.up, 180);
+		//}
+		//for (int i = 0; i < 2; i++)
+		//{
+		//	Refine(Vector3.up, 90);
+		//}
+		//for (int i = 0; i < 2; i++)
+		//{
+		//	Refine(Vector3.up, 30);
+		//}
+		//AddPerlin(.5f, 5);
 		mesh.RecalculateNormals();
     }
 
@@ -41,7 +46,7 @@ public class PlanetMesh : MonoBehaviour
         
     }
 
-	void BuildIcosphere()
+	MeshTree BuildIcosphere()
 	{
 		var phi = (1 + Mathf.Sqrt(5)) / 2;
 		addVertex(new Vector3(-1, phi, 0));
@@ -81,8 +86,7 @@ public class PlanetMesh : MonoBehaviour
 			8, 6, 7,
 			9, 8, 1
 		};
-		mesh.vertices = vertices.ToArray();
-		mesh.triangles = triangles.ToArray();
+		return new MeshTree(vertices, triangles);
 	}
 	
 	void Refine(Vector3 targetDir, float angle)
