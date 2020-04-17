@@ -20,7 +20,8 @@ public class PlanetMesh : MonoBehaviour
 		middlePointIndexCache = new Dictionary<long, int>();
 		meshTree = BuildIcosphere();
 		meshTree.Refine(t => 3);
-		//meshTree.Refine(t => 10 - (int)(Vector3.Angle(t.GetCenter(meshTree.Vertices), Vector3.up)/20 + 0.5));
+		//meshTree.Refine(t => 1);
+		meshTree.Refine(t => 7 - (int)(Vector3.Angle(t.GetCenter(meshTree.Vertices), Vector3.up)/30 + 0.5));
 		mesh.vertices = meshTree.Vertices;
 		mesh.triangles = meshTree.LeafTriangles;
 

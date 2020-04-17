@@ -37,7 +37,8 @@ public class MeshTree
 		this.vertices = new List<Vector3>(vertices);
 		for (int i = 0; i < triangles.Count; i+=3)
 		{
-			leafNodes.AddFirst(new Node(new Triangle(triangles[i], triangles[i + 1], triangles[i + 2])));
+			Node n = new Node(new Triangle(triangles[i], triangles[i + 1], triangles[i + 2]));
+			leafNodes.AddFirst(n.LinkedListNode);
 		}
 	}
 	public int[] LeafTriangles
@@ -74,9 +75,12 @@ public class MeshTree
 			}
 		}
 		n.Dependents = null;
-		leafNodes.AddFirst(n.LinkedListNode);
 		superleafNodes.Remove(n.LinkedListNode);
-		superleafNodes.AddFirst(n.Parent.LinkedListNode);
+		leafNodes.AddFirst(n.LinkedListNode);
+		if (n.Parent.IsSuperleaf())
+		{
+			superleafNodes.AddFirst(n.Parent.LinkedListNode);
+		}
 		return true;
 
 	}
@@ -99,6 +103,8 @@ public class MeshTree
 		nodeByMidpointCache[mid0] = n;
 		nodeByMidpointCache[mid1] = n;
 		nodeByMidpointCache[mid2] = n;
+		if (n.Parent != null && n.Parent.IsSuperleaf())
+			superleafNodes.Remove(n.Parent.LinkedListNode);
 		children[0] = new Node(new Triangle(i0, mid0, mid2));
 		children[1] = new Node(new Triangle(i1, mid1, mid0));
 		children[2] = new Node(new Triangle(i2, mid2, mid1));
@@ -106,13 +112,14 @@ public class MeshTree
 		n.Children = children;
 		foreach(Node child in children)
 		{
-			leafNodes.AddFirst(child);
+			leafNodes.AddFirst(child.LinkedListNode);
 		}
+		leafNodes.Remove(n.LinkedListNode);
+		superleafNodes.AddFirst(n.LinkedListNode);
 	}
 
 	private void cleanup()
 	{
-		Debug.Log("cleanup in");
 		bool keepProcessing;
 		do
 		{
@@ -160,9 +167,13 @@ public class MeshTree
 							Node[] children = new Node[2];
 							children[0] = new Node(new Triangle(mids[j], node.Triangle.GetVertexByIndex((j + 2) % 3), node.Triangle.GetVertexByIndex(j)));
 							children[1] = new Node(new Triangle(mids[j], node.Triangle.GetVertexByIndex((j + 1) % 3), node.Triangle.GetVertexByIndex((j + 2) % 3)));
+							if (node.Parent.IsSuperleaf())
+								superleafNodes.Remove(node.Parent.LinkedListNode);
 							node.Children = children;
-							leafNodes.AddFirst(children[0]);
-							leafNodes.AddFirst(children[1]);
+							leafNodes.AddFirst(children[0].LinkedListNode);
+							leafNodes.AddFirst(children[1].LinkedListNode);
+							leafNodes.Remove(node.LinkedListNode);
+							superleafNodes.AddFirst(node.LinkedListNode);
 							Node inverseDependent = nodeByMidpointCache[mids[j]];
 							if (inverseDependent.Dependents == null)
 								inverseDependent.Dependents = new List<Node>(3);
@@ -173,7 +184,6 @@ public class MeshTree
 				}
 			}
 		} while (keepProcessing);
-		Debug.Log("cleanup out");
 	}
 
 	public void Refine(Func<Triangle, int> getRefinementDegree)
@@ -186,7 +196,7 @@ public class MeshTree
 			Queue<Node> processQueue = new Queue<Node>();
 			foreach (Node node in superleafNodes)
 			{
-				if (node.Depth > getRefinementDegree(node.Triangle) >> 1)
+				if (node.Depth + 2 > getRefinementDegree(node.Triangle) * 2)
 				{
 					processQueue.Enqueue(node);
 					keepProcessing = true;
@@ -200,11 +210,11 @@ public class MeshTree
 		do
 		{
 			keepProcessing = false;
-			middlePointIndexCache.Clear();
+			//nodeByMidpointCache.Clear();
 			Queue<Node> processQueue = new Queue<Node>();
 			foreach (Node node in leafNodes)
 			{
-				if (node.Depth < getRefinementDegree(node.Triangle) >> 1)
+				if (node.Depth < getRefinementDegree(node.Triangle) * 2)
 				{
 					processQueue.Enqueue(node);
 					keepProcessing = true;
@@ -216,7 +226,7 @@ public class MeshTree
 			}
 			cleanup();
 		} while (keepProcessing);
-		Debug.Log("refine out");
+		Debug.Log("leaves: " + leafNodes.Count + "\nSuperleaves: " + superleafNodes.Count);
 	}
 
 	private void addVertex(Vector3 p, bool normalize = true)
@@ -279,14 +289,27 @@ class Node
 			return children;
 		}
 		set
-		{	
+		{
 			children = value;
+			if (children == null)
+			{
+				return;
+			}
 			foreach (Node child in children)
 			{
 				child.Parent = this;
 				child.Depth = this.Depth + children.Length / 2;
 			}
 		}
+	}
+	public bool IsSuperleaf()
+	{
+		if (children == null) return false;
+		foreach(Node child in children)
+		{
+			if (child.children != null) return false;
+		}
+		return true;
 	}
 	public int Depth { get; private set; }
 	public List<Node> Dependents { get; set; }
