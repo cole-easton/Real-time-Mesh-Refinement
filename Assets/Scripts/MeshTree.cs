@@ -64,6 +64,13 @@ public class MeshTree
 		{
 			return false;
 		}
+		if (!n.IsSuperleaf()) //is this to expensive, should be only do it if we know we're reducing a dependant?
+		{
+			foreach(Node child in n.Children)
+			{
+				reduceNode(child);
+			}
+		}
 		int i0 = n.Triangle.Vertex0;
 		int i1 = n.Triangle.Vertex1;
 		int i2 = n.Triangle.Vertex2;
@@ -219,7 +226,7 @@ public class MeshTree
 
 						/* while we may not need this (as it's unlikely there'd be a flat node next to a split one, since splitting only happens if the adjacent
 						 * node is refined) there may be some cases I'm not considering, and this node does have the given midpoint, so it's sensible to add it */
-						nodeByMidpointCache[mids[j]].AddFirst(node); 
+						nodeByMidpointCache[mids[j]].AddFirst(node);
 						break;
 					}
 				}

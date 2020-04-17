@@ -31,11 +31,12 @@ public class PlanetMesh : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-        if (Time.time % 0.1 - Time.deltaTime < 0)
+        if (true) //(Time.time % 0.1 - Time.deltaTime < 0)
 		{
-			Refine(new Vector3(Mathf.Cos(Time.time * 6), Mathf.Sin(Time.time * 6), 0), 5);
+			Refine(new Vector3(Mathf.Cos(Time.time * 3), Mathf.Sin(Time.time * 3), 0), 5);
 			mesh.vertices = meshTree.Vertices;
 			mesh.triangles = meshTree.LeafTriangles;
+			//AddPerlin(1f, 4);
 			mesh.RecalculateNormals();
 		}
     }
@@ -122,18 +123,17 @@ public class PlanetMesh : MonoBehaviour
 
 	void AddPerlin(float baseMagnitude, int numOctaves, float initialLOD = 1, float decayRatio = 2)
 	{
-		for (int i = 0; i < vertices.Count; i++)
+		for (int i = 0; i < mesh.vertices.Length; i++)
 		{
 			float sample = 1;
 			for (int o = 0; o < numOctaves; o++)
 			{
 				sample += baseMagnitude * Mathf.Pow(decayRatio, -o) * PerlinNoise.Noise(
-					vertices[i].x * initialLOD * Mathf.Pow(decayRatio, o),
-					vertices[i].y * initialLOD * Mathf.Pow(decayRatio, o),
-					vertices[i].z * initialLOD * Mathf.Pow(decayRatio, o));
+					mesh.vertices[i].x * initialLOD * Mathf.Pow(decayRatio, o),
+					mesh.vertices[i].y * initialLOD * Mathf.Pow(decayRatio, o),
+					mesh.vertices[i].z * initialLOD * Mathf.Pow(decayRatio, o));
 			}
-			vertices[i] = vertices[i] * (sample+1);
-			mesh.vertices = vertices.ToArray();
+			mesh.vertices[i] = mesh.vertices[i] * (sample+1);
 		}
 		
 	}
