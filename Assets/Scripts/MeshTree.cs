@@ -18,11 +18,27 @@ public class MeshTree
 		get
 		{
 			Mesh mesh = new Mesh();
-			mesh.vertices = Vertices;
-			mesh.triangles = LeafTriangles;
+			int[] indexHash = new int[vertices.Count]; //new index + 1 at index old index of vertex
+			int[] triangles = LeafTriangles;
+			List<Vector3> minifiedVerts = new List<Vector3>();
+			int[] minifiedTris = new int[triangles.Length];
+			int vertexIndex = 0;
+			for(int i = 0; i < triangles.Length; i++)
+			{
+				if (indexHash[triangles[i]] == 0)
+				{
+					minifiedVerts.Add(vertices[triangles[i]]);
+					indexHash[triangles[i]] = ++vertexIndex;
+				}
+				minifiedTris[i] = indexHash[triangles[i]] - 1;
+			}
+			mesh.vertices = minifiedVerts.ToArray();
+			mesh.triangles = minifiedTris;
 			return mesh;
 		}
 	}
+
+	private Node[] roots;
 	private LinkedList<Node> leafNodes;
 	private LinkedList<Node> superleafNodes; //one level up from leaves
 	private Dictionary<Int64, int> middlePointIndexCache;
@@ -30,6 +46,7 @@ public class MeshTree
 
 	public MeshTree(IList<Vector3> vertices, IList<int> triangles)
 	{
+		roots = new Node[triangles.Count];
 		leafNodes = new LinkedList<Node>();
 		superleafNodes = new LinkedList<Node>();
 		middlePointIndexCache = new Dictionary<long, int>();
@@ -39,6 +56,7 @@ public class MeshTree
 		{
 			Node n = new Node(new Triangle(triangles[i], triangles[i + 1], triangles[i + 2]));
 			leafNodes.AddFirst(n.LinkedListNode);
+			roots[i] = n;
 		}
 	}
 	public int[] LeafTriangles
@@ -56,6 +74,39 @@ public class MeshTree
 			}
 			return tris;
 		}
+	}
+
+	public void MinifyVertices()
+	{
+		int[] indexHash = new int[vertices.Count]; //new index + 1 at index old index of vertex
+		int[] triangles = LeafTriangles;
+		List<Vector3> minifiedVerts = new List<Vector3>();
+		int[] minifiedTris = new int[triangles.Length];
+		int vertexIndex = 0;
+		for (int i = 0; i < triangles.Length; i++)
+		{
+			if (indexHash[triangles[i]] == 0)
+			{
+				minifiedVerts.Add(vertices[triangles[i]]);
+				indexHash[triangles[i]] = ++vertexIndex;
+			}
+			minifiedTris[i] = indexHash[triangles[i]] - 1;
+		}
+	}
+
+	private void replaceIndices(Node head, int[] replacementTable)
+	{
+		Triangle tri = head.Triangle;
+		tri = new Triangle(replacementTable[tri.Vertex0], replacementTable[tri.Vertex1], replacementTable[tri.Vertex2]);
+		head.Triangle = tri;
+		if (head.Children != null)
+		{
+			foreach(Node child in head.Children)
+			{
+				replaceIndices(child, replacementTable);
+			}
+		}
+
 	}
 
 	private bool reduceNode(Node n)
@@ -333,7 +384,7 @@ class Node
 		Dependents = null;
 		LinkedListNode = new LinkedListNode<Node>(this);
 	}
-	public Triangle Triangle { get; }
+	public Triangle Triangle { get; internal set; }
 	public Node[] Children
 	{
 		get

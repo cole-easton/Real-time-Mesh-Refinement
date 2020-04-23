@@ -7,7 +7,7 @@ using System;
 public class PlanetMesh : MonoBehaviour
 {
 
-	private Mesh mesh;
+	private MeshFilter meshFilter;
 	private MeshTree meshTree;
 	private List<int> triangles = new List<int>();
 	private List<Vector3> vertices = new List<Vector3>();
@@ -15,8 +15,7 @@ public class PlanetMesh : MonoBehaviour
 	// Start is called before the first frame update
 	void Start()
     {
-		mesh = new Mesh();
-		gameObject.GetComponent<MeshFilter>().mesh = mesh;
+		meshFilter = gameObject.GetComponent<MeshFilter>();
 		middlePointIndexCache = new Dictionary<long, int>();
 		meshTree = BuildIcosphere();
 		//meshTree.Refine(t => 3);
@@ -25,7 +24,7 @@ public class PlanetMesh : MonoBehaviour
 		//meshTree.Refine(t => t.GetCenter(meshTree.Vertices).y > 0 ? 1 : 0);
 		//Refine(Vector3.up, 7);
 		//AddPerlin(.5f, 5);
-		mesh.RecalculateNormals();
+		meshFilter.mesh.RecalculateNormals();
     }
 
     // Update is called once per frame
@@ -33,11 +32,12 @@ public class PlanetMesh : MonoBehaviour
     {
         if (true) //(Time.time % 0.1 - Time.deltaTime < 0)
 		{
+			double time = System.DateTime.Now.Second;
 			Refine(new Vector3(Mathf.Cos(Time.time * 3), Mathf.Sin(Time.time * 3), 0), 5);
-			mesh.vertices = meshTree.Vertices;
-			mesh.triangles = meshTree.LeafTriangles;
+			meshFilter.mesh = meshTree.Mesh;
 			//AddPerlin(1f, 4);
-			mesh.RecalculateNormals();
+			meshFilter.mesh.RecalculateNormals();
+			Debug.Log("Time: " + (System.DateTime.Now.Second + 60 - time)%60);
 		}
     }
 
@@ -110,9 +110,8 @@ public class PlanetMesh : MonoBehaviour
 				return (int)(maxDegree - Math.Pow(Vector3.Angle(targetDir, t.GetCenter(meshTree.Vertices))/180f, 0.5)*maxDegree + 0.5);
 			}
 		});
-		mesh.vertices = meshTree.Vertices;
-		mesh.triangles = meshTree.LeafTriangles;
-		mesh.RecalculateNormals();
+		meshFilter.mesh = meshTree.Mesh;
+		meshFilter.mesh.RecalculateNormals();
 	}
 
 	private void addVertex(Vector3 p, bool normalize = true)
@@ -123,17 +122,17 @@ public class PlanetMesh : MonoBehaviour
 
 	void AddPerlin(float baseMagnitude, int numOctaves, float initialLOD = 1, float decayRatio = 2)
 	{
-		for (int i = 0; i < mesh.vertices.Length; i++)
+		for (int i = 0; i < meshFilter.mesh.vertices.Length; i++)
 		{
 			float sample = 1;
 			for (int o = 0; o < numOctaves; o++)
 			{
 				sample += baseMagnitude * Mathf.Pow(decayRatio, -o) * PerlinNoise.Noise(
-					mesh.vertices[i].x * initialLOD * Mathf.Pow(decayRatio, o),
-					mesh.vertices[i].y * initialLOD * Mathf.Pow(decayRatio, o),
-					mesh.vertices[i].z * initialLOD * Mathf.Pow(decayRatio, o));
+					meshFilter.mesh.vertices[i].x * initialLOD * Mathf.Pow(decayRatio, o),
+					meshFilter.mesh.vertices[i].y * initialLOD * Mathf.Pow(decayRatio, o),
+					meshFilter.mesh.vertices[i].z * initialLOD * Mathf.Pow(decayRatio, o));
 			}
-			mesh.vertices[i] = mesh.vertices[i] * (sample+1);
+			meshFilter.mesh.vertices[i] = meshFilter.mesh.vertices[i] * (sample+1);
 		}
 		
 	}
