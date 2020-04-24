@@ -128,13 +128,18 @@ public class MeshTree
 		}
 	}
 
+	/// <summary>
+	/// Removes all decendants of Node n so that n.Trangle becomes part of the surface geometry of the mesh
+	/// </summary>
+	/// <param name="n">The node to reduce</param>
+	/// <returns>Whether the node was successfully reduced</returns>
 	private bool reduceNode(Node n)
 	{
 		if (n.Children == null)
 		{
 			return false;
 		}
-		if (!n.IsSuperleaf()) //is this to expensive, should be only do it if we know we're reducing a dependant?
+		if (!n.IsSuperleaf()) //is this to expensive, should we only do it if we know we're reducing a dependant?
 		{
 			foreach(Node child in n.Children)
 			{
@@ -168,6 +173,10 @@ public class MeshTree
 		n.Children = null;
 		superleafNodes.Remove(n.LinkedListNode);
 		leafNodes.AddFirst(n.LinkedListNode);
+		if (n.Parent != null && n.Parent.IsSuperleaf())
+		{
+			superleafNodes.AddFirst(n.Parent.LinkedListNode);
+		}
 		if (n.Dependents != null)
 		{
 			foreach (Node dependent in n.Dependents)
@@ -176,22 +185,27 @@ public class MeshTree
 			}
 		}
 		n.Dependents = null;
-		
-		if (n.Parent != null && n.Parent.IsSuperleaf() &&!superleafNodes.Contains(n.Parent))
-		{
-			superleafNodes.AddFirst(n.Parent.LinkedListNode);
-		}
 		return true;
 
 	}
 
-	private void refineNode(Node n)
+	/// <summary>
+	/// Splits the geometry of n.Triangle into 4 subtrangles, unless n has only one sibling, in which case it's parent will be reconstructed to have 4 children
+	/// </summary>
+	/// <param name="n">the node to refine</param>
+	/// <returns>Whether subgeometry was added to n.Triangle itself</returns>
+	private bool refineNode(Node n)
 	{
+		//this is expected to happen on the second sibling of an odd-depth pair, which should be handled externally, but robustness is important
+		if (n.LinkedListNode.List != leafNodes ||  n.Children != null) 
+		{
+			return false;
+		}
 		if (n.Depth % 2 == 1)
 		{
 			reduceNode(n.Parent);
 			refineNode(n.Parent);
-			return;
+			return false;
 		}
 		Node[] children = new Node[4];
 		int i0 = n.Triangle.Vertex0;
@@ -228,9 +242,10 @@ public class MeshTree
 		}
 		leafNodes.Remove(n.LinkedListNode);
 		superleafNodes.AddFirst(n.LinkedListNode);
+		return true;
 	}
 
-	private void cleanup()
+	private void cleanup(bool allowDoubleSplitting = false)
 	{
 		bool keepProcessing;
 		do
@@ -259,7 +274,10 @@ public class MeshTree
 						break; //we're not bordering any more-highly-refined areas; do nothing
 					case 1:
 						keepProcessing = true;
-						splitQueue.Enqueue(node);
+						if (allowDoubleSplitting || node.Depth % 2 == 0)
+							splitQueue.Enqueue(node);
+						else
+							refineQueue.Enqueue(node);
 						break;
 					default:
 						keepProcessing = true;
