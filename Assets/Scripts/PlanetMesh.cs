@@ -34,6 +34,7 @@ public class PlanetMesh : MonoBehaviour
 		{
 			double time = System.DateTime.Now.Second;
 			Refine(new Vector3(Mathf.Cos(Time.time * 3), Mathf.Sin(Time.time * 3), 0), 5);
+			meshTree.MinifyVertices();
 			meshFilter.mesh = meshTree.Mesh;
 			//AddPerlin(1f, 4);
 			meshFilter.mesh.RecalculateNormals();

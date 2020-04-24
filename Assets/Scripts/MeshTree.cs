@@ -18,22 +18,8 @@ public class MeshTree
 		get
 		{
 			Mesh mesh = new Mesh();
-			int[] indexHash = new int[vertices.Count]; //new index + 1 at index old index of vertex
-			int[] triangles = LeafTriangles;
-			List<Vector3> minifiedVerts = new List<Vector3>();
-			int[] minifiedTris = new int[triangles.Length];
-			int vertexIndex = 0;
-			for(int i = 0; i < triangles.Length; i++)
-			{
-				if (indexHash[triangles[i]] == 0)
-				{
-					minifiedVerts.Add(vertices[triangles[i]]);
-					indexHash[triangles[i]] = ++vertexIndex;
-				}
-				minifiedTris[i] = indexHash[triangles[i]] - 1;
-			}
-			mesh.vertices = minifiedVerts.ToArray();
-			mesh.triangles = minifiedTris;
+			mesh.vertices = Vertices;
+			mesh.triangles = LeafTriangles;
 			return mesh;
 		}
 	}
@@ -46,7 +32,7 @@ public class MeshTree
 
 	public MeshTree(IList<Vector3> vertices, IList<int> triangles)
 	{
-		roots = new Node[triangles.Count];
+		roots = new Node[triangles.Count/3];
 		leafNodes = new LinkedList<Node>();
 		superleafNodes = new LinkedList<Node>();
 		middlePointIndexCache = new Dictionary<long, int>();
@@ -56,7 +42,7 @@ public class MeshTree
 		{
 			Node n = new Node(new Triangle(triangles[i], triangles[i + 1], triangles[i + 2]));
 			leafNodes.AddFirst(n.LinkedListNode);
-			roots[i] = n;
+			roots[i/3] = n;
 		}
 	}
 	public int[] LeafTriangles
@@ -81,7 +67,6 @@ public class MeshTree
 		int[] indexHash = new int[vertices.Count]; //new index + 1 at index old index of vertex
 		int[] triangles = LeafTriangles;
 		List<Vector3> minifiedVerts = new List<Vector3>();
-		int[] minifiedTris = new int[triangles.Length];
 		int vertexIndex = 0;
 		for (int i = 0; i < triangles.Length; i++)
 		{
@@ -90,14 +75,49 @@ public class MeshTree
 				minifiedVerts.Add(vertices[triangles[i]]);
 				indexHash[triangles[i]] = ++vertexIndex;
 			}
-			minifiedTris[i] = indexHash[triangles[i]] - 1;
 		}
+		vertices = minifiedVerts;
+		foreach (Node root in roots)
+		{
+			replaceIndices(root, indexHash);
+		}
+		Dictionary<long, int> newIndexCache = new Dictionary<long, int>();
+		foreach(long key in middlePointIndexCache.Keys)
+		{
+			int value = middlePointIndexCache[key];
+			if (value >= indexHash.Length || value < 0)
+			{
+				continue;
+			}
+			int larger = unchecked((int)key);
+			int smaller = (int)(key >> 32);
+			if (indexHash[smaller] == 0 || indexHash[larger] == 0)
+			{
+				//a hash remains in the table for vertices not in the structure; ideally, this would not occur, but this is a workaround
+				continue;
+			}
+			long newKey = getHash(indexHash[smaller]-1, indexHash[larger]-1);
+			newIndexCache[newKey] = indexHash[value]-1;
+		}
+		middlePointIndexCache = newIndexCache;
+		Dictionary<int, LinkedList<Node>> newNodeCache = new Dictionary<int, LinkedList<Node>>();
+		foreach (int key in nodeByMidpointCache.Keys)
+		{
+			if (key > indexHash.Length || indexHash[key] == 0)
+			{
+				continue;
+			}
+			newNodeCache[indexHash[key]-1] = nodeByMidpointCache[key];
+		}
+		nodeByMidpointCache = newNodeCache;
+
 	}
 
 	private void replaceIndices(Node head, int[] replacementTable)
 	{
+		Debug.Assert(head.Children == null == leafNodes.Contains(head));
 		Triangle tri = head.Triangle;
-		tri = new Triangle(replacementTable[tri.Vertex0], replacementTable[tri.Vertex1], replacementTable[tri.Vertex2]);
+		tri = new Triangle(replacementTable[tri.Vertex0] - 1, replacementTable[tri.Vertex1] - 1, replacementTable[tri.Vertex2] - 1);
 		head.Triangle = tri;
 		if (head.Children != null)
 		{
@@ -106,7 +126,6 @@ public class MeshTree
 				replaceIndices(child, replacementTable);
 			}
 		}
-
 	}
 
 	private bool reduceNode(Node n)
@@ -147,6 +166,8 @@ public class MeshTree
 			}
 		}
 		n.Children = null;
+		superleafNodes.Remove(n.LinkedListNode);
+		leafNodes.AddFirst(n.LinkedListNode);
 		if (n.Dependents != null)
 		{
 			foreach (Node dependent in n.Dependents)
@@ -155,8 +176,7 @@ public class MeshTree
 			}
 		}
 		n.Dependents = null;
-		superleafNodes.Remove(n.LinkedListNode);
-		leafNodes.AddFirst(n.LinkedListNode);
+		
 		if (n.Parent != null && n.Parent.IsSuperleaf() &&!superleafNodes.Contains(n.Parent))
 		{
 			superleafNodes.AddFirst(n.Parent.LinkedListNode);
@@ -292,6 +312,7 @@ public class MeshTree
 
 	public void Refine(Func<Triangle, int> getRefinementDegree)
 	{
+		int loopCount = 0;
 		bool keepProcessing;
 		do
 		{
@@ -309,7 +330,8 @@ public class MeshTree
 			{
 				reduceNode(processQueue.Dequeue());
 			}
-		} while (keepProcessing);
+		} while (keepProcessing && ++loopCount < 20);
+		loopCount = 0;
 		do
 		{
 			keepProcessing = false;
@@ -328,7 +350,7 @@ public class MeshTree
 				refineNode(processQueue.Dequeue());
 			}
 			cleanup();
-		} while (keepProcessing);
+		} while (keepProcessing && ++loopCount < 20);
 		Debug.Log("leaves: " + leafNodes.Count + "\nSuperleaves: " + superleafNodes.Count);
 	}
 
@@ -343,6 +365,11 @@ public class MeshTree
 		bool firstIsSmaller = a < b;
 		Int64 smallerIndex = firstIsSmaller ? a : b;
 		Int64 greaterIndex = firstIsSmaller ? b : a;
+		if (smallerIndex < 0)
+		{
+			Debug.Log("ALERT, INVALID INDEX");
+			Debug.Log(System.Environment.StackTrace);
+		}
 		return (smallerIndex << 32) + greaterIndex;
 	}
 
